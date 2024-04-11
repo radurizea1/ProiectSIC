@@ -105,7 +105,7 @@ void tarefaSensorTemperatura(void *pvParameters) {
     if (ok=1) {
       int chk = DHT11.read(DHT11PIN);
       valorSensorTemperatura = DHT11.temperature;
-      xSemaphoreGive(semaphoreBut); // Give back the semaphore to allow Tasktemp_continuu to resume'
+      xSemaphoreGive(semaphoreBut); // Give back the semaphore to allow Tasktemp_continuu to resume
       vTaskDelay(50000 / portTICK_PERIOD_MS);
     }
 }
