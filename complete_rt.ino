@@ -5,41 +5,55 @@
 #include <semphr.h>
 #include <task.h> 
 
-LiquidCrystal_I2C lcd(0x27,16,2);
-SemaphoreHandle_t semaphoreContinuu;
-SemaphoreHandle_t semaphoreRef;
-SemaphoreHandle_t semaphoreBut;
-//TaskHandle_t Tasktemp_ref_Handle; Nu functioneaza eTaskGetState :(((
-//TaskHandle_t Tasktemp_continuu_Handle;
-bool Tasktemp_ref_running = false;//V2
-#define DHT11PIN 2
+LiquidCrystal_I2C lcd(0x27,16,2); // Initialize the LCD
+SemaphoreHandle_t semaphoreContinuu; // Semaphore for continuous temperature task
+SemaphoreHandle_t semaphoreRef; // Semaphore for reference temperature task
+SemaphoreHandle_t semaphoreBut; // Semaphore for button task
+bool Tasktemp_ref_running = false; // Flag to indicate if the reference temperature task is running
 
-volatile float valorSensorTemperatura;
-volatile int T = 22;
-volatile bool vizibil = false;
-void Taskprint( void *pvParameters );
-dht11 DHT11;
-const int trigPin = 9;
-const int echoPin = 10;
+// Initialize pins for ultrasonic sensor
+#define trigPin 9
+#define echoPin 10
 long duration;
 int distance;
 
+// Function prototypes
+void Taskprint( void *pvParameters );
+void tarefaSensorTemperatura(void *pvParameters);
+void Tasktemp_ref(void *pvParameters);
+void Tasktemp_continuu(void *pvParameters);
+void Taskbutton(void *pvParameters);
+void Taskreferinta(void *pvParameters);
+void Taskdist(void *pvParameters);
 
+volatile float valorSensorTemperatura; // Temperature sensor value
+volatile int T = 22; // Initial reference temperature
+volatile bool vizibil = false; // Flag to indicate LCD visibility
+dht11 DHT11;
 
 void setup() {
     Serial.begin(9600);
     Serial.println(F("Start!"));
-    pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
-    pinMode(echoPin, INPUT); // Sets the echoPin as an Input
+
+    // Set up ultrasonic sensor pins
+    pinMode(trigPin, OUTPUT); 
+    pinMode(echoPin, INPUT);
+
+    // Create semaphores
     semaphoreContinuu = xSemaphoreCreateBinary();
     semaphoreRef = xSemaphoreCreateBinary();
     semaphoreBut = xSemaphoreCreateBinary();
-    xSemaphoreGive(semaphoreContinuu);
+    xSemaphoreGive(semaphoreContinuu); // Give the semaphore for continuous temperature task
+
+    // Set up relay
     pinMode(50, OUTPUT);
+    // Set up buttons
     pinMode(51, INPUT);
     pinMode(52, INPUT);
     pinMode(53, INPUT);
     lcd.init();
+
+    // Create tasks
     xTaskCreate(Taskprint,"task2",configMINIMAL_STACK_SIZE,NULL, 0, NULL);
     xTaskCreate(tarefaSensorTemperatura, "TarefaSensorTemperatura", configMINIMAL_STACK_SIZE, NULL, 1, NULL);
     xTaskCreate(Tasktemp_ref,"task3_ref",configMINIMAL_STACK_SIZE,NULL, 2, NULL);
@@ -47,19 +61,22 @@ void setup() {
     xTaskCreate(Taskbutton,"task4",configMINIMAL_STACK_SIZE,NULL, 4, NULL);
     xTaskCreate(Taskreferinta,"task5",configMINIMAL_STACK_SIZE,NULL, 5, NULL);
     xTaskCreate(Taskdist,"task6",configMINIMAL_STACK_SIZE,NULL, 6, NULL);
-    vTaskStartScheduler();
+    vTaskStartScheduler(); // Start the scheduler
 }
 
 void loop() {
 }
+
+// Task to read reference temperature from a potentiometer
 void Taskreferinta(void *pvParameters) {
   while (1) {
     int sensorValue = analogRead(A0);
     T = 18 + 0.0098 * (sensorValue + 1 );
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(500 / portTICK_PERIOD_MS); // Delay
   }
 }
-int ok = 0;
+
+// Task to detecting the presence of people
 void Taskdist(void *pvParameters) {
     while (1) {
     digitalWrite(trigPin, LOW);
@@ -70,6 +87,7 @@ void Taskdist(void *pvParameters) {
         duration = pulseIn(echoPin, HIGH);
         distance = duration * 0.034 / 2;
         
+        // Check if someone is within the specified distance, else close the execution element
         if (distance < 20) {
           ok = 1;
         } else {
@@ -81,6 +99,7 @@ void Taskdist(void *pvParameters) {
     }
 }
 
+// Task to read temperature sensor values
 void tarefaSensorTemperatura(void *pvParameters) {
   while (1) {
     if (ok=1) {
@@ -91,7 +110,7 @@ void tarefaSensorTemperatura(void *pvParameters) {
     }
 }
 
-
+// Task to print values on the LCD
 void Taskprint(void *pvParameters)  {
   while(1)
   { 
@@ -130,10 +149,10 @@ void Taskprint(void *pvParameters)  {
       lcd.noBacklight();
     }
   vTaskDelay(800 / portTICK_PERIOD_MS);
-
 }
 }
 
+// Task to control temperature based on reference
 void Tasktemp_ref(void *pvParameters) {
   while(1) {
     // Wait for the semaphore to be taken
@@ -144,11 +163,11 @@ void Tasktemp_ref(void *pvParameters) {
       while(Tasktemp_ref_running) {
         if(valorSensorTemperatura < T+1 && xSemaphoreTake(semaphoreBut, portMAX_DELAY) == pdTRUE) {
           digitalWrite(50, LOW);
-          //Serial.println(F("am activat"));
+          //Serial.println(F("am activat elementul de executie"));
         }
         if(valorSensorTemperatura > T) {   
           digitalWrite(50, HIGH);
-          //Serial.println(F("am dezactivat"));
+          //Serial.println(F("am dezactivat elementul de executie"));
         }
         vTaskDelay(500 / portTICK_PERIOD_MS); // Add a small delay to avoid tight loop
       } 
@@ -158,7 +177,7 @@ void Tasktemp_ref(void *pvParameters) {
   }
 }
 
-
+// Task to control temperature continuously
 void Tasktemp_continuu(void *pvParameters) {
   while(1) {
     if(xSemaphoreTake(semaphoreContinuu, portMAX_DELAY) == pdTRUE ) {
@@ -166,15 +185,15 @@ void Tasktemp_continuu(void *pvParameters) {
       Tasktemp_ref_running = false;
       while(Tasktemp_ref_running == false) {
         Serial.println(F("am intrat in continuu"));
-        if(valorSensorTemperatura < 35 && xSemaphoreTake(semaphoreBut, portMAX_DELAY) == pdTRUE) {
+        if(valorSensorTemperatura < 35 && xSemaphoreTake(semaphoreBut, portMAX_DELAY) == pdTRUE) {  //Add overheating protection
           
           digitalWrite(50, LOW);
-          
+          //Serial.println(F("am activat elementul de executie"));
         }
         if(valorSensorTemperatura > 35) {
           
           digitalWrite(50, HIGH);
-          //Serial.println(F("am dezactivat"));
+          //Serial.println(F("am dezactiv atelementul de executie"));
         }
         vTaskDelay(500 / portTICK_PERIOD_MS); // Add a small delay to avoid tight loop
       }
@@ -183,6 +202,7 @@ void Tasktemp_continuu(void *pvParameters) {
   }
 }
 
+// Task to handle button presses
 void Taskbutton(void *pvParameters) {
   int buton1;
   int buton2;
@@ -194,24 +214,24 @@ void Taskbutton(void *pvParameters) {
     buton3 = digitalRead(53);
     if(buton1 == HIGH && distance < 20){
       Tasktemp_ref_running = true;
-      xSemaphoreGive(semaphoreRef); // Eliberează semaforul pentru Tasktemp_ref
-      xSemaphoreTake(semaphoreContinuu, 0); // Blochează semaforul pentru Tasktemp_continuu
+      xSemaphoreGive(semaphoreRef); // Release semaphore for Tasktemp_ref
+      xSemaphoreTake(semaphoreContinuu, 0); // Block semaphore for Tasktemp_continuu
       Serial.println(F("buton1 apasat"));
   }
     if(buton2 == HIGH && distance < 20){
       Tasktemp_ref_running = false;
-      xSemaphoreGive(semaphoreContinuu); // Eliberează semaforul pentru Tasktemp_continuu
-      xSemaphoreTake(semaphoreRef, 0); // Blochează semaforul pentru Tasktemp_ref
+      xSemaphoreGive(semaphoreContinuu); // Release semaphore for Tasktemp_continuu
+      xSemaphoreTake(semaphoreRef, 0); // Block semaphore for Tasktemp_ref
       Serial.println(F("buton2 apasat"));
     }
     if(buton3 == HIGH){
       if (!previousState) {
-        vizibil = !vizibil; // Invertează starea vizibil dacă butonul 3 este apăsat
-        previousState = true; // Actualizează starea anterioară a butonului 3
+        vizibil = !vizibil; // Toggle visibility state if button 3 is pressed
+        previousState = true; // Update previous state of button 3
       }
     } else {
-      previousState = false; // Actualizează starea anterioară a butonului 3 când butonul nu este apăsat
+      previousState = false; // Update previous state of button 3 when button is not pressed
     }
-      vTaskDelay(500 / portTICK_PERIOD_MS);
+      vTaskDelay(500 / portTICK_PERIOD_MS); // Delay
   }
 }
